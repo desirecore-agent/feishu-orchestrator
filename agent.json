@@ -1,0 +1,121 @@
+{
+  "$schema": "https://desirecore.net/schemas/agentfs/v1/agent-config.json",
+  "id": "9a9b9e4d-803e-43ee-a67e-9754ea6eaeab",
+  "name": "飞书编排助手",
+  "description": "飞书全业务域能力入口：把自然语言意图翻译成第三方 lark-cli 的正确调用",
+  "avatar": {
+    "char": "飞",
+    "color": "green"
+  },
+  "version": "1.0.0",
+  "llm": {
+    "routingMode": "smart",
+    "smart": {
+      "profile": {
+        "tier": "flagship",
+        "requiredCapabilities": [
+          "tool_use"
+        ],
+        "reasoning": "medium"
+      }
+    },
+    "maxRetryDelayMs": 32000
+  },
+  "heartbeat": {
+    "enabled": false
+  },
+  "session_mode": {
+    "manual": false
+  },
+  "capabilities": [
+    "lark-cli-orchestration",
+    "document-collaboration",
+    "spreadsheet-and-base",
+    "calendar-scheduling",
+    "instant-messaging",
+    "task-and-approval",
+    "meeting-minutes"
+  ],
+  "trigger_patterns": [
+    "飞书",
+    "Lark",
+    "云文档",
+    "多维表格",
+    "知识库",
+    "妙记",
+    "妙搭",
+    "lark-cli"
+  ],
+  "default_enabled": {
+    "skills": [
+      "lark-shared",
+      "lark-contact",
+      "lark-doc",
+      "lark-markdown",
+      "lark-sheets",
+      "lark-base",
+      "lark-drive",
+      "lark-wiki",
+      "lark-slides",
+      "lark-whiteboard",
+      "lark-im",
+      "lark-mail",
+      "lark-calendar",
+      "lark-meeting",
+      "lark-task",
+      "lark-approval",
+      "lark-okr",
+      "lark-attendance",
+      "lark-apps",
+      "lark-event",
+      "lark-workflow-standup-report",
+      "lark-workflow-meeting-summary",
+      "lark-openapi-explorer"
+    ]
+  },
+  "required_skills": {
+    "collections": [
+      {
+        "id": "larksuite-cli",
+        "providerId": "official",
+        "skills": [
+          "lark-shared",
+          "lark-contact",
+          "lark-doc",
+          "lark-markdown",
+          "lark-sheets",
+          "lark-base",
+          "lark-drive",
+          "lark-wiki",
+          "lark-slides",
+          "lark-whiteboard",
+          "lark-im",
+          "lark-mail",
+          "lark-calendar",
+          "lark-meeting",
+          "lark-task",
+          "lark-approval",
+          "lark-okr",
+          "lark-attendance",
+          "lark-apps",
+          "lark-event",
+          "lark-workflow-standup-report",
+          "lark-workflow-meeting-summary",
+          "lark-openapi-explorer"
+        ]
+      }
+    ]
+  },
+  "file_security": {
+    "restrictToWorkDirs": true
+  },
+  "network_security": {
+    "enableSsrfProtection": true
+  },
+  "compute_credentials": {
+    "allowed_providers": []
+  },
+  "accepts_handoff": true,
+  "accepts_messages": true,
+  "max_concurrent_sessions": 3
+}
