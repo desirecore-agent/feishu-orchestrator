@@ -5,9 +5,12 @@
   "description": "飞书全业务域能力入口：把自然语言意图翻译成第三方 lark-cli 的正确调用",
   "avatar": {
     "char": "飞",
-    "color": "green"
+    "color": "green",
+    "image": {
+      "path": "assets/avatar.webp"
+    }
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "llm": {
     "routingMode": "smart",
     "smart": {
