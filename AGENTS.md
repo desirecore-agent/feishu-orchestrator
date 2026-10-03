@@ -37,9 +37,14 @@ desirecore/market
 | 你要做的 | 动哪里 |
 | --- | --- |
 | 修文档、调人格、改纪律 | 只改本仓库，推 `main` |
-| 让新装的用户拿到新版 | 改市场卡片的 pin（见 §4） |
+| 让新装与已安装的用户拿到新版 | 改市场卡片的 pin（见 §4；v10.0.177 及更早的客户端例外，见下） |
 
-用户装到的永远是卡片上 pin 的那个 commit，不是本仓库的最新 `main`。这是**有意为之**——上游随便改不会立刻影响已发布的用户，中间有显式审核关口。
+新安装装到的是卡片上 pin 的那个 commit，不是本仓库的最新 `main`。这是**有意为之**：中间有显式审核关口，上游随便改不该立刻影响已发布的用户。已安装用户的更新是否同样受这道关口约束，取决于客户端版本：
+
+- **v10.0.177 之后的客户端**（包含 desirecore/desirecore#3728）：只会被更新到卡片当前的 pin。`main` 上领先 pin 的提交，在市场 repin PR 合并、客户端同步到新目录之前不会送达；条目被拦、下架或与本仓库对不上时，更新暂停。
+- **v10.0.177 及更早的客户端**：仍跟随本仓库 `main` 的最新提交。`main` 上的 `agent.json#version` 一旦递增，这些用户最迟约 10 分钟内会被无人值守更新到 `main` 头，中间所有提交一并带上；版本号不变的提交不会单独推送，但会随下一次版本递增一起送达。
+
+所以在旧客户端退出使用之前，**合进 `main` 仍等于对一部分已安装用户发布**：版本递增的提交只在市场 repin PR 已准备好时合入，并紧接着合并 repin。
 
 ## 3. 目录结构与各文件职责
 
@@ -119,7 +124,7 @@ uv run --quiet scripts/i18n/validate-i18n.py
 
 - 市场详情页只渲染 `USAGE.md`，**不读 `docs/`**
 - Agent 的上下文只挂载 `persona.md` / `principles.md` / `memory/` / `skills/`，**不含 `docs/`**
-- 安装时整树复制会把 `docs/` 落到 `agents/<id>/docs/`（`EXCLUDED_SEGMENTS` 只排除 `upstream` / `.git` / `node_modules` / `.cache`），但**没有任何东西引导 Agent 去读它**
+- 安装是整棵 git 树检出，`docs/` 会随之落到 `agents/<id>/docs/`，但**没有任何东西引导 Agent 去读它**
 - `principles.md` 里引导的是各 `lark-*` 技能自己的 `SKILL.md` 与 `references/`（那是市场合集技能的目录），不是本仓库的 `docs/`
 
 结果：这 13 篇只有访问 GitHub 的人能看到，Agent 运行时读不到。**README 里那 16 处 `docs/` 链接同样只对人有效。**
@@ -233,7 +238,7 @@ grep -rInE "@[a-z0-9.-]+\.[a-z]{2,}|/Users/[a-z]+|open_id=|tenant_key=" . --excl
 
 1. **`~/.desirecore/market/official/` 是可能过期的本机副本。** 用它核对合集，实测得出过「Agent 声明了合集里不存在的 `lark-meeting`」这种错误结论——远端 `origin/main` 上合集有 28 个技能且包含它，本机副本停在只有 27 个的旧 commit。核对市场事实一律以远端为准。
 
-2. **安装是整树复制。** `EXCLUDED_SEGMENTS` 只有 `upstream` / `.git` / `node_modules` / `.cache`，所以 `README.md` / `LICENSE` / `NOTICE` / `docs/` 全都会进用户的 AgentFS 并计入 `contentDigest`。加文件前想一下它是否该出现在用户机器上。
+2. **安装是整棵 git 树检出。** 客户端把本仓库 fork 进用户的 `agents/<id>/`，所有被 git 跟踪的文件（`README.md` / `LICENSE` / `NOTICE` / `docs/`）都会进用户的 AgentFS，之后每次更新也一并合入；安装回执不再记录 `contentDigest`。加文件前想一下它是否该出现在用户机器上。
 
 3. **改文件前先搜在途 PR。** 本仓库与 market 条目由多个会话并行维护，实测多次出现「刚推完才发现别人在改同一处」。开工前跑：
    ```bash
