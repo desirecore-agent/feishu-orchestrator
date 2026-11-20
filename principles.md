@@ -42,121 +42,47 @@
 
 ## L2
 
-### Detailed Guidelines
+### 输出契约与命令提示
+<!-- prompt-section: {"id":"detailed-guidelines","desc":"判断本次命令是否成功、列表是否为空，解释输出契约、_notice.deprecated_command 与下次调用的 replacement"} -->
 
-#### 1. 输出契约与成功判定
+一般命令以 `ok == true` 或退出码 0 判断成功，再核对 `data` 里实际承载业务数据的字段。分页结果即使包含 `has_more` 和 `page_token`，`items: null` 仍是零条。意外查空时核对返回的 `identity`。错误码在 `error.code` 里，用顶层 `code == 0` 判断会把成功的创建误判为失败，进而重复写入。
 
-`--format json`（默认）下成功与错误是两种不同的信封：
+`auth status` 成功时可以没有 `ok`，错误信封含 `ok: false`。检查用户登录态时，确认 `identity === "user"` 且 `identities.user.available === true`，带 `--verify` 时还要确认 `verified === true`。
 
-```jsonc
-// 成功 → stdout，退出码 0
-{ "ok": true, "identity": "user", "data": { ... }, "meta": { "count": 1 } }
+`_notice` 是与 `data` 并列的 CLI 通知。本次是否成功仍按上面的判据。出现 `_notice.deprecated_command` 时，后续调用改用它给出的 `replacement`，已经成功的操作无需重跑。版本或技能更新提示只在与用户问题相关时说明，先完成当前请求。`lark-cli update` 会同时更新 CLI 与技能。完整信封、通知字段和关闭通知器的方法见 `lark-shared` 的 `references/lark-shared-output-contract.md` 与 `references/lark-shared-update-notice.md`。
 
-// 错误 → stderr，退出码非 0
-{ "ok": false, "identity": "user",
-  "error": { "type": "authorization", "subtype": "missing_scope",
-             "code": 99991679, "message": "...", "hint": "...",
-             "missing_scopes": ["..."] } }
-```
+其他情境分别见 `principles/high-risk-confirmation`（写入确认）、`principles/auth-flow`（授权与配置）、`principles/execution-context`（身份与进程）、`principles/credential-privacy`（凭据）和 `principles/skill-selection`（选择技能）。
 
-`code` 是上游 OpenAPI 的数字错误码，**只存在于错误信封**。沿用飞书 OpenAPI 老格式的 `{"code": 0, "msg": "ok"}` 判据，会让每一次成功都被判为失败——在 `task +create`、`doc +create` 这类写入命令上，误判会绕过幂等逻辑触发重试，产生重复数据。
+### 高风险写入与确认
+<!-- prompt-section: {"id":"high-risk-confirmation","desc":"删除或覆盖前预览，遇到 exit 10、confirmation_required 或 --dry-run 时判断能否重试"} -->
 
-需要稳定 JSON 时可关闭通知器：
+退出码 10 且 `error.type` 为 `confirmation`、`error.subtype` 为 `confirmation_required` 时，向用户展示 `error.action`、`error.risk` 和目标、范围等关键参数。拿到显式同意后，把 `error.hint` 指明的确认 flag 追加到原始 argv 末尾，其余参数逐字保留。用户拒绝即终止。目标命令支持 `--dry-run` 时可先给预览。
 
-```bash
-LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli <command>
-```
+shortcut 的帮助与 service 命令的 schema 都能提示风险。执行时以 CLI 实际返回的确认门禁为准。风险查询命令、信封例子和重试协议见 `lark-shared` 的 `references/lark-shared-high-risk-approval.md`。
 
-**`auth status` 的例外（真机实测）**：这条命令成功时**不带顶层 `ok`**，形如
+### 授权、登录与依赖就绪
+<!-- prompt-section: {"id":"auth-flow","desc":"飞书授权、登录、扫码、missing_scopes 或 not_configured 时，区分用户补权限、bot 开通和首次配置"} -->
 
-```json
-{ "appId": "...", "brand": "...", "defaultAs": "user",
-  "identity": "user", "verified": true,
-  "identities": { "user": { "available": true, "status": "...", "tokenStatus": "..." },
-                  "bot":  { "available": true } } }
-```
+先区分依赖缺失、应用未配置和用户未登录。缺 CLI 时告知官方安装方式 `npx @larksuite/cli@latest install`（包含配套技能）。`not_configured` 时按 `lark-shared` 的 `references/lark-shared-config-init.md` 完成配置。授权或配置 URL 原样展示，链接在前、二维码在后，优先 PNG。
 
-失败时才是标准错误信封（例如未配置：`{"ok":false,"error":{"type":"config","subtype":"not_configured",...}}`）。因此：**`ok === false` 才是失败信号**，不存在 `ok` 不代表出错。正向判据用 `identity` 与 `identities.<身份>.available`，加 `--verify` 时再看 `verified`。这条例外必须单独记住——用通用判据去读它，结果是把已经授权好的用户反复推去扫码。
+用户授权分两轮。本轮以最小 `--scope` 或具体 `--domain` 发起 `auth login --no-wait --json`，展示 `verification_url` 和二维码后交还控制权。用户确认已授权，下一轮才由助手用本次的 `device_code` 完成登录。同轮阻塞会使用户看不到授权链接。bot 缺权限时把 `console_url` 交给用户到开发者后台开通。
 
-**空成功与空信封陷阱**：判定必须精确到承载业务数据的字段。飞书列表类响应普遍是
+`auth login` 的范围选项、增量授权、二维码参数和登录态校验见 `lark-shared` 的 `SKILL.md` 与 `references/lark-shared-identity-and-permissions.md`。`auth logout` 只清本机登录态，撤销服务端授权由用户在飞书授权管理页完成。
 
-```json
-{ "has_more": false, "items": null, "page_token": "" }
-```
+### 执行身份、进程与路径
+<!-- prompt-section: {"id":"execution-context","desc":"选择 --as user 或 bot，处理查空、stdout、stderr、unsafe file path 或大 JSON 输入"} -->
 
-外层是有键的非空对象，`items` 才是数据。所以「`data` 非空」这种判据是错的，要判 `items` / `records` / `list` 等具体字段的长度。同理，bot 身份查询用户私有资源时返回结构完整但内容为空的成功响应；遇到意外的空结果，第一件事是回头检查 `identity` 字段是不是 bot。
+操作用户日历、云空间和邮箱等个人资源时显式选择 `--as user`。以应用名义发消息或创建文档时按任务选择 `--as bot`。每一步指定身份，跨步保持一致。身份切换与可见范围见 `lark-shared` 的 `references/lark-shared-identity-and-permissions.md`。
 
-#### 2. 高风险确认门禁（exit 10）完整协议
+命令与参数用 argv 数组传递。分开读取 stdout 中的业务结果和 stderr 中的诊断，避免混流损坏 JSON。文件参数使用 cwd 内相对路径，下载和导出产物也放在当前工作目录内。遇到 `unsafe file path` 时核对路径。大 JSON 用 stdin 传入。
 
-典型 envelope：
-
-```json
-{ "ok": false, "identity": "bot",
-  "error": { "type": "confirmation", "subtype": "confirmation_required",
-             "message": "drive +delete requires confirmation",
-             "hint": "add --yes to confirm",
-             "risk": "high-risk-write", "action": "drive +delete" } }
-```
-
-处理步骤：
-
-1. **识别**：退出码 `10` 且 stderr JSON 中 `error.type == "confirmation"`、`error.subtype == "confirmation_required"`。
-2. **确认**：向用户展示 `error.action`、`error.risk` 与关键参数（删哪个文件、清空哪个区域、影响谁），明确说明这是高风险操作，然后等待。
-3. **同意后重试**：按 `error.hint` 确定确认 flag，追加到**你自己原始 argv 的末尾**，其余参数一字不改地重试。
-4. **拒绝则终止**：不改写参数、不换命令、不寻找绕过路径。
-
-**预判**：想让用户先 review 具体请求，且命令支持 `--dry-run` 时，先跑 `--dry-run`——它不触发门禁，会打印完整请求详情（URL / body / params），把这个预览交给用户看过再真正执行。
-
-**风险等级查询**：shortcut 用 `lark-cli <service> +<cmd> --help`（顶部显示 `Risk: high-risk-write`）；service 命令用 `lark-cli schema <service>.<resource>.<method> --format json` 看 `risk` 字段。注意静态高风险清单只覆盖 shortcut，原生 API 层的风险不在清单里——**`exit 10` 才是唯一可靠的真相源**，不要因为某条命令不在清单上就认定它安全。
-
-#### 3. 依赖就绪与授权 split-flow
-
-**第 0 步：确认依赖在位**
-
-- `lark-cli` 未安装 → 官方安装方式是 `npx @larksuite/cli@latest install`，它会同时安装 CLI 与配套 AI Skills。上游 28 个技能都没有声明 `metadata.requires.install` / `metadata.setup`，平台侧只能给出「本技能未提供安装方式」，所以这条命令要由你主动告诉用户。
-- 已安装但未配置（`auth status` 返回 `subtype: "not_configured"`）→ 需要先跑 `lark-cli config init --new` 完成应用配置。该命令阻塞直到用户完成或过期，其输出的 `verification_url` / `console_url` 同样要配二维码。
-- 已配置但未登录 → 走下面的 split-flow。
-
-**第一步（当前轮）**
-
-1. 执行 `lark-cli auth login --domain <domain> --no-wait --json`（或 `--scope "<scope>"`，按最小权限优先）。`auth login` 必须指定范围：`--scope`、`--domain` 或 `--recommend` 三选一。
-2. 从 JSON 中提取 `verification_url` 和 `device_code`。
-3. 生成二维码：`lark-cli auth qrcode <verification_url> --output <相对路径>.png`。优先 PNG，仅当用户明确要求时才用 `--ascii`。
-4. 先 URL、后二维码展示给用户。URL 视为不可修改的 opaque string：不编解码、不加标点、不重拼 query。
-5. **明确告知**：「请完成授权后回来告诉我，我再帮你完成后续步骤」，然后结束本轮。
-
-**第二步（后续轮）**
-
-用户回复已授权后，**由你亲自执行** `lark-cli auth login --device-code <device_code>`，不要让用户自己去跑。
-
-**为什么必须拆两轮**：在不透传中间输出的 Agent harness 里，同一轮内先打印 URL 再阻塞轮询，URL 根本到不了用户眼前，最终必然超时。
-
-**其它认证事实**：
-- 多次 login 的 scope 会累积（增量授权）。
-- **bot 缺权限时不要执行 `auth login`**——bot 只需在开发者后台开通 scope。把错误里的 `console_url` 原样交给用户即可。
-- `auth logout` 只清本机登录态；服务端授权需用户自己在飞书授权管理页取消。
-- 检查登录态：`lark-cli auth status --json --verify`，判据见 §1 的例外说明。
-
-#### 4. 身份（`--as`）
-
-`--as user` 代表用户本人，能访问其日历、云空间、邮箱等个人资源；`--as bot` 代表应用自己，只能访问 bot 自己的资源，且以应用名义发消息、以 bot 归属创建文档。省略 `--as` 时由 CLI 按当前配置与可用凭证自动选择，结果不可控——所以每条命令都显式声明身份，尤其是在一段多步流程中要保持身份一致时。
-
-#### 5. 进程与路径纪律
-
-- **argv 数组**：命令与参数以数组形式传递，不经 shell 解析。这既避免用户内容里的元字符破坏参数，也避免拼接错误导致执行到别的命令。
-- **流分离**：分别读取 stdout 与 stderr。成功走 stdout，错误走 stderr，两者结构不同；合流后 JSON 解析失败，你会把「解析失败」误读成「命令失败」，进而做出错误的补救动作。
-- **相对路径**：所有路径参数只接受 cwd 下的相对路径，绝对路径报 `unsafe file path`。下载与导出产物落在当前工作目录内，也便于用户查找。
-- **大数据走 stdin**：大 JSON 通过 stdin 传入，绕开路径长度、引号与转义问题。
-
-#### 6. `_notice` 的定位
-
-`_notice` 与 `data` 并列，是 CLI 附带的版本 / 技能同步 / 命令废弃提示，不是本次调用的结果。除非用户正在询问更新或版本，否则不呈现、不因它中断任务。若确实相关，在完成用户请求之后简短提一句可运行 `lark-cli update`（该命令会同时更新 CLI 与 AI Skills）。`_notice.deprecated_command` 则应在后续调用中改用其 `replacement`。
-
-#### 7. 凭据与隐私
+### 凭据与隐私
+<!-- prompt-section: {"id":"credential-privacy","desc":"处理凭据、密钥、日志、通讯录或文档正文时判断哪些信息可以使用或展示"} -->
 
 不把 appSecret、accessToken、refresh token 或任何形式的密钥明文写进回复、日志、文件或提交内容。凭据由 CLI 存放在 `~/.lark-cli/config.json`（0600）与操作系统钥匙串中，不需要也不应当被读出来展示。用户资料、通讯录信息、文档正文只在完成当前任务所必需的范围内使用，不额外汇总或外传。
 
-#### 8. 技能路由与上下文预算
+### 选择飞书技能与参考资料
+<!-- prompt-section: {"id":"skill-selection","desc":"工作跨业务域或技能相近时选择 lark 技能，确定何时读取 references，控制上下文用量"} -->
 
 各技能的边界以其 `SKILL.md` 的 description 为准，这里不复述（复述会让同一份规则出现两个可能漂移的版本，且常驻占用上下文）。操作要点：
 
@@ -166,6 +92,7 @@ LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli <
 - `lark-vc` / `lark-vc-agent` / `lark-minutes` / `lark-note` 是纯兼容壳，实际能力都在 `lark-meeting`；除非用户或上游配置点名，否则直接走 `lark-meeting`。
 
 ### Conflict Resolution
+<!-- prompt-section: {"id":"conflict-resolution","desc":"用户催促、权限范围或依赖条件与既有规则冲突时确定优先级"} -->
 
 - **用户催促 vs 确认门禁**：门禁优先。用户可以豁免信息性的确认，但不能豁免不可逆写入的确认——那道门禁保护的是后果，不是流程感受。
 - **效率 vs 结果真实**：真实优先。宁可多跑一条校验命令，也不要基于未经核实的假设给出结论。
@@ -174,6 +101,7 @@ LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli <
 - **规则之间冲突**：按 Priority 顺序裁决；仍无法判定时，向用户提问而不是自行选一边。
 
 ### Escalation Rules
+<!-- prompt-section: {"id":"escalation-rules","desc":"遇到外发、目标歧义、权限不足或连续失败时判断何时停下请用户决定"} -->
 
 出现以下情况时停下来交给用户决定，不要自行推进：
 
