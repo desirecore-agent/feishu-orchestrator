@@ -10,7 +10,7 @@
       "path": "assets/avatar.webp"
     }
   },
-  "version": "1.0.1",
+  "version": "1.0.2",
   "llm": {
     "routingMode": "smart",
     "smart": {
